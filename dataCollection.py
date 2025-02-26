@@ -16,15 +16,14 @@ class Config:
         self.API_KEY = os.getenv("API_KEY")
 
         self.baseURL = "https://v3.football.api-sports.io"
-        self.authHeader = {"x-rapidapi-key": self.API_KEY}
+        self.authHeader = {"x-rapidapi-key": self.API_KEY} 
 
 
 class APIClient:
 
-    #static variables in order to maintain daily limit.
-    apiCounter = 0 # Tracker of how many I have used.
-    maxDailyCount = 100 # Daily limit that api key gave me.
-    lastReset = datetime.now().date() # Track the last reset date
+    apiCounter = 0 
+    maxDailyCount = 7500 
+    lastReset = datetime.now().date() 
     USAGE_FILE = "apiUsage.json"
 
     def __init__(self):
@@ -32,27 +31,25 @@ class APIClient:
     
     @classmethod
     def resetLimit(cls):
-        currentDate = datetime.now().date() # Obtain the current date.
+        currentDate = datetime.now().date()
         if currentDate != cls.lastReset:
             cls.apiCounter = 0
             cls.lastReset = currentDate
             print("daily reset done.")
 
     def collectData(self, endpoint, params):
-        # Check if api call count needs to be reset for new day.
-        self.resetLimit()
 
+        self.resetLimit()
         if APIClient.apiCounter >= APIClient.maxDailyCount:
             print("Call limit has been hit.")
             return None
         
-        # Create url.
         url = f"{self.config.baseURL}/{endpoint}"
         response = requests.get(url, headers=self.config.authHeader, params=params)
         
         if response.status_code == 200:
             APIClient.apiCounter += 1
-            self.saveUsage() # ☆ update the usage ☆
+            self.saveUsage()
             return response.json()
         else:
             print(f"failed to collect data at endpoint {endpoint}")
@@ -93,6 +90,7 @@ class APIClient:
             json.dump({
                 "apiCounter": self.apiCounter,
                 "lastReset": self.lastReset.strftime("%Y-%m-%d")}, file)
+            
 
 #============== Actively collect the data with seasons ranging from 1992- present=============#
 
@@ -110,112 +108,215 @@ class DataCollector:
     def currentSeasonCalc(self):
         today = datetime.now()
         return today.year if today.month >= 8 else today.year -1
-            
+     
     def premierLeagueTeams(self, leagueID=39):
         season = self.currentSeasonCalc()
-        params = {
-            "league": leagueID,
-            "season": season
-        }
+        params = {"league": leagueID, "season": season}
         response = self.client.collectData("teams", params)
-        
         if response:
             return response['response']
-        else:
-            
+        else:  
             print("fetching teams failed")
             return None
     
-
     def teamFixtures(self, teamID, leagueID=39):
         currentSeason = self.currentSeasonCalc()
-
-        params = {
-            "team": teamID,
-            "league": leagueID,
-            "season": currentSeason
-        }
+        params = {"team": teamID, "league": leagueID, "season": currentSeason}
         response = self.client.collectData("fixtures", params)
-
+        
         if response:
             return response['response']
         else:
-            print(f"failed collected fixtures for team {teamID}")
+            return None
+
+        
+    def fixtureStats(self, fixtureID, teamID):
+        params = {"fixture": fixtureID, "team":teamID}
+        response = self.client.collectData("fixtures/statistics", params)
+        if response:
+            return response['response']
+        else:
+            return None
+    
+    def fixtureStatsPlayers(self, fixtureID, teamID):
+        params = {"fixture": fixtureID, "team": teamID}
+        response = self.client.collectData("fixtures/players", params)
+        if response:
+            return response['response']
+        else:
             return None
         
-    def matchScores(self, fixtureID):
-        params = {"id": fixtureID}
-        response = self.client.collectData("fixtures", params)
-
+    def matchEvents(self, fixtureID, teamID):
+        params = {"fixture": fixtureID, "team":teamID}
+        response = self.client.collectData("fixtures/events", params)
+        if response:
+            return response['response']
+        else:
+            return None
+        
+    def lineups(self, fixtureID, teamID):
+        params = {"fixture": fixtureID, "team":teamID}
+        response = self.client.collectData("fixtures/lineups", params)
+        if response:
+            return response['response']
+        else:
+            return None
+    
+    def MatchScores(self, fixtureID):
+        params = {"fixture": fixtureID}
+        response = self.client.collectData("fixtures/statistics", params)
         if response:
             return response['response']
         else:
             print(f"failure to collect scores from fixture {fixtureID}")
-
-    def getPlayers(self, teamID, season, leagueID=39):
-        params = {
-            "team": teamID,
-            "season": season
-        }
-        response = self.client.collectData("players", params)
-
-        if response:
-            return response['response']
-        else:
-            print(f"failure to collect players from team {teamID}")
-    
-    def playerStats(self, playerID, season, leagueID=39):
-        params = {
-            "player": playerID,
-            "season": season,
-            "league": leagueID
-        }
-        response = self.client.collectData("players", params)
-
-        if response:
-            if 'errors' in response and response['errors']:
-                print(f"API Error for player {playerID}: {response['errors']}")
-            print(f"API Response for player {playerID}:", response)
-            
-            return response['response']
-        else:
-            print(f"failure to collect player statistics for player {playerID}")
             return None
 
-    def collectData(self):
-
-        # Get all the teams in the league.
-        teams = self.premierLeagueTeams()
-
-        if not teams:
-            return 
-        
+    def teamStats(self, teamID, leagueID=39):
         currentSeason = self.currentSeasonCalc()
+        params = {"season":currentSeason, "team":teamID, "league": leagueID}
+        response = self.client.collectData("teams/statistics", params)
+        if response:
+            return response['response']
+        else:
+            return None
+
+
+    def getPlayers(self, teamID):
+        params = {"team": teamID}
+        all_players = []
+
+       
+        response = self.client.collectData("players/squads", params)
+        if response:
+            return response['response']
+        else:
+            return None
+    
+    
+    def playerStats(self,season,teamID, playerID, leagueID=39):
+        params = {"season": season, "league": leagueID, "team": teamID, "page": 1}
+        all_players_data = []
+
+        while True:
+            response = self.client.collectData("players", params)  # Fetch from API
+
+            if response and 'response' in response:
+                players_data = response['response']
+                all_players_data.extend(players_data)  # Store all fetched players
+
+                # Check if the player is in the current response
+                for player_entry in players_data:
+                    if player_entry['player']['id'] == playerID:
+                        print(f" Found player data: {player_entry}")
+                        return player_entry  # Return the correct player's stats
+
+                # Handle pagination: Move to the next page if available
+                current_page = response['paging']['current']
+                total_pages = response['paging']['total']
+
+                if current_page >= total_pages:
+                    break  # Stop if we've fetched all pages
+
+                params['page'] += 1  # Move to the next page
+            else:
+                print(f" Failed to collect statistics for Player {playerID} on page {params['page']}.")
+                break  # Stop if API fails
+
+        print(f"Player {playerID} not found after searching {len(all_players_data)} players across all pages.")
+        return None  # Return None if player is not found
+
         
+    def getInjuries(self, leagueID=39):
+        season = self.currentSeasonCalc()
+        params = {"league": leagueID, "season": season}
+        response = self.client.collectData("injuries", params)
+        if response:
+            return response['response']
+        else:
+            return None
+        
+    def leagueStandings(self, leagueID=39):
+        season = self.currentSeasonCalc()
+        params = {"league": leagueID, "season": season}
+        response = self.client.collectData("standings", params)
+        if response:
+            return response['response']
+        else:
+            return None
+
+    def topPerformers(self, leagueID=39):
+        season = self.currentSeasonCalc()
+        params = {"league": leagueID, "season": season}
+        response = self.client.collectData("players/topscorers", params)
+        if response:
+            return response['response']
+        else:
+            return None
+        
+    def teamTransfers(self, teamID):
+        params = {"team": teamID}
+        response = self.client.collectData("transfers", params)
+        if response:
+            return response['response']
+        else:
+         return None
+        
+
+    def collectData(self):
+        print("\nStarting Data Collection...")
+
+        teams = self.premierLeagueTeams()
+        
+        if not teams:
+            print(" Failed to fetch teams.")
+            return
+
+        currentSeason = self.currentSeasonCalc()
+        print(f" Current Season: {currentSeason}")
+
+        cached_player_stats = {}  # Store player stats to prevent duplicate API calls
+
         for team in teams:
             teamID = team['team']['id']
-            print(f"collecting data for team {team['team']['id']}")
+            teamName = team['team']['name']
+            print(f"\n Collecting data for {teamName} (ID: {teamID})...")
 
-            # Get the fixtures
+            # Fetch Fixtures
             fixtures = self.teamFixtures(teamID)
+            fixture_data = {}
 
             if fixtures:
                 for fixture in fixtures:
                     fixtureID = fixture['fixture']['id']
                     score = self.matchScores(fixtureID)
+                    if score is not None:
+                        fixture_data[fixtureID] = score
+                    else:
+                        print(f"No match score found for Fixture {fixtureID}.")
             
-            # Get the players
+            print(f"Collected {len(fixture_data)} match scores for {teamName}.")
+
+            # Fetch Players
             players = self.getPlayers(teamID, currentSeason)
 
             if players:
                 for player in players:
                     playerID = player['player']['id']
-                    playerStats = self.playerStats(playerID, currentSeason)
+                    playerName = player['player']['name']
 
+                    # Check if we already fetched this player's stats
+                    if playerID not in cached_player_stats:
+                        playerStats = self.playerStats(playerID, currentSeason, teamID)
+                        if playerStats:
+                            cached_player_stats[playerID] = playerStats
+                        else:
+                            print(f"⚠️ No stats found for Player {playerName} (ID: {playerID}).")
+                    else:
+                        print(f"⏳ Using cached stats for {playerName} (ID: {playerID}).")
 
+            print(f"Collected stats for {len(cached_player_stats)} players in {teamName}.")
 
-
-
+        print("\nData Collection Completed!")
 
 
         
@@ -241,6 +342,8 @@ def testClient():
 def test_data_collection():
     print("\nStarting Data Collection Test...")
     collector = DataCollector()
+    currentSeason = collector.currentSeasonCalc()
+    print(currentSeason)
 
     # Fetch teams
     teams = collector.premierLeagueTeams()
@@ -261,17 +364,22 @@ def test_data_collection():
     else:
         print(f"Failed to fetch fixtures for {team_name}.")
 
+
     # Fetch player data for the first team
-    players = collector.getPlayers(team_id, collector.currentSeasonCalc())
+    players = collector.getPlayers(team_id)
     if players:
         print(f"Fetched {len(players)} players for {team_name}.")
         # Test stats for the first player
         first_player = players[0]
-        player_id = first_player['player']['id']
-        player_name = first_player['player']['name']
-        stats = collector.playerStats(player_id, collector.currentSeasonCalc())
+        player_id = first_player['players'][20]['id']
+        print(player_id)
+        player_name = first_player['players'][20]['name']
+        print(player_name)
+
+        stats = collector.playerStats(collector.currentSeasonCalc(), team_id, player_id)
         if stats:
             print(f"Stats successfully fetched for player: {player_name} (ID: {player_id})")
+            print(stats)
         else:
             print(f"Failed to fetch stats for player: {player_name}")
     else:
@@ -279,10 +387,6 @@ def test_data_collection():
     
     
 
-
-
-
-# ✅ CALL TEST FUNCTION ONLY IF FILE IS RUN DIRECTLY
 if __name__ == "__main__":
     testClient()
     test_data_collection()
