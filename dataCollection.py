@@ -7,6 +7,12 @@ import os
 import requests
 from datetime import datetime
 import json
+import logging
+
+
+#create custom config for logging.
+logging.basicConfig(level=logging.INFO, filename="dataCollection.log", filemode="w", format="%(asctime)s - %(levelname)s - %(message)s")
+
 
 load_dotenv()
 print("API Key from .env:", os.getenv("API_KEY"))
@@ -41,18 +47,21 @@ class APIClient:
 
         self.resetLimit()
         if APIClient.apiCounter >= APIClient.maxDailyCount:
-            print("Call limit has been hit.")
+            logging.warning("API call limit has been reached.")
             return None
         
         url = f"{self.config.baseURL}/{endpoint}"
-        response = requests.get(url, headers=self.config.authHeader, params=params)
-        
-        if response.status_code == 200:
+
+        try:
+            response = requests.get(url, headers=self.config.authHeader, params=params)  
+            response.raise_for_status()
             APIClient.apiCounter += 1
             self.saveUsage()
+            logging.info(f"logged data for {endpoint} successfully")
             return response.json()
-        else:
-            print(f"failed to collect data at endpoint {endpoint}")
+
+        except:
+            logging.exception(f"failed to collect data at endpoint {endpoint}")
             return None
         
     '''
@@ -60,11 +69,14 @@ class APIClient:
     Retrieves the last recorded API call count and the date of the last reset.
     This prevents your API counter from resetting when the script is restarted unexpectedly.
     '''
+    #iffy on all the returns... ask for other opinion for this!!!!!
     def loadUsage(self):
         
         #Checks if the persistence file (api_usage.json) exists.
-        if os.path.exists(self.USAGE_FILE):
+        if not os.path.exists(self.USAGE_FILE):
+            return 0, datetime.now().date()
 
+        try:
             #Opens the file in read mode ("r")
             with open(self.USAGE_FILE, 'r') as file:
 
@@ -76,8 +88,10 @@ class APIClient:
 
                 #Returns the saved API call count and the date of the last reset.
                 return data["apiCounter"],lastReset
+        except(json.JSONDecodeError, FileNotFoundError) as e:
+            logging.exception(f"Unable to load api usage file: {e}")
+            return 0, datetime.now().date()
             
-        return 0, datetime.now().date()
 
     '''
     Saves the current API call count and reset date into the JSON file after each successful API call. This ensures that any progress made is not lost between restarts.
@@ -104,7 +118,6 @@ class DataCollector:
         startYear = 1992
         return list(range(startYear, currentSeason))
 
-
     def currentSeasonCalc(self):
         today = datetime.now()
         return today.year if today.month >= 8 else today.year -1
@@ -112,84 +125,135 @@ class DataCollector:
     def premierLeagueTeams(self, leagueID=39):
         season = self.currentSeasonCalc()
         params = {"league": leagueID, "season": season}
-        response = self.client.collectData("teams", params)
-        if response:
-            return response['response']
-        else:  
-            print("fetching teams failed")
+
+        try :
+            response = self.client.collectData("teams", params)
+            if response:
+                return response['response']
+            else:
+                logging.warning(f"API returned no valid data for leage {leagueID}.")
+                return None
+            
+        except (Exception) as e:
+            logging.info(f"Error with collecting premier league teams: {e}")
             return None
     
     def teamFixtures(self, teamID, leagueID=39):
         currentSeason = self.currentSeasonCalc()
         params = {"team": teamID, "league": leagueID, "season": currentSeason}
-        response = self.client.collectData("fixtures", params)
-        
-        if response:
-            return response['response']
-        else:
+
+        try:
+            response = self.client.collectData("fixtures", params)
+            if response:
+                return response['response']
+            else:
+                logging.warning(f"API returned no valid data for team {teamID}, season {currentSeason}.")
+                return None  
+    
+        except (Exception) as e:
+            logging.info(f"Unexpected error, could not collect fixtures for {teamID}: {e}")
             return None
 
         
     def fixtureStats(self, fixtureID, teamID):
         params = {"fixture": fixtureID, "team":teamID}
-        response = self.client.collectData("fixtures/statistics", params)
-        if response:
-            return response['response']
-        else:
+        try: 
+            response = self.client.collectData("fixtures/statistics", params)
+            if response:
+                return response['response']
+            else:
+                logging.warning(f"API returned no valid data for fixture {fixtureID}.")
+                return None
+            
+        except (Exception) as e:
+            logging.info(f"Unexpected error, could not collect stats for fixture {fixtureID}: {e}")
             return None
     
     def fixtureStatsPlayers(self, fixtureID, teamID):
         params = {"fixture": fixtureID, "team": teamID}
-        response = self.client.collectData("fixtures/players", params)
-        if response:
-            return response['response']
-        else:
+
+        try:
+            response = self.client.collectData("fixtures/players", params)
+            if response:
+                return response['response']
+            else:
+                logging.warning("API returned no valid data for fixture players")
+                return None
+            
+        except (Exception) as e:
+            logging.info(f"Error, could not collect any data for fixtures players: {e}")
             return None
         
     def matchEvents(self, fixtureID, teamID):
         params = {"fixture": fixtureID, "team":teamID}
-        response = self.client.collectData("fixtures/events", params)
-        if response:
-            return response['response']
-        else:
+        try:
+            response = self.client.collectData("fixtures/events", params)
+            if response:
+                return response['response']
+            else:
+                logging.info(f"API returned no valid data for match events for fixture {fixtureID} and team {teamID}")
+                return None
+            
+        except (Exception) as e:
+            logging.info(f"Error, could not collect any match events for fixture {fixtureID} and team {teamID}: {e}")
             return None
         
     def lineups(self, fixtureID, teamID):
         params = {"fixture": fixtureID, "team":teamID}
-        response = self.client.collectData("fixtures/lineups", params)
-        if response:
-            return response['response']
-        else:
+        try:
+            response = self.client.collectData("fixtures/lineups", params)
+            if response:
+                return response['response']
+            else:
+                logging.info(f"API did not return valid data for match lineups for fixture {fixtureID} and team {teamID}.")
+                return None
+
+        except (Exception) as e:
+            logging.info(f"Error, could not collect any lineups for fixture {fixtureID} and team {teamID}: {e} ")
             return None
     
     def MatchScores(self, fixtureID):
         params = {"fixture": fixtureID}
-        response = self.client.collectData("fixtures/statistics", params)
-        if response:
-            return response['response']
-        else:
-            print(f"failure to collect scores from fixture {fixtureID}")
+        try:
+            response = self.client.collectData("fixtures/statistics", params)
+            if response:
+                return response['response']
+            else:
+                logging.info(f"API did not return valid match scores for fixture {fixtureID}.")
+                return None
+        except (Exception) as e :
+            logging.info(f"Error, unable to collect any match score data for fixture {fixtureID}: {e}")
             return None
 
     def teamStats(self, teamID, leagueID=39):
         currentSeason = self.currentSeasonCalc()
         params = {"season":currentSeason, "team":teamID, "league": leagueID}
-        response = self.client.collectData("teams/statistics", params)
-        if response:
-            return response['response']
-        else:
+
+        try:
+            response = self.client.collectData("teams/statistics", params)
+            if response:
+                return response['response']
+            else:
+                logging.info(f"API unable to collect data statistics for team {teamID}")
+                return None
+        except (Exception) as e:
+            logging.info(f"Error, unable to collect data for team stats: {e}")
             return None
 
 
     def getPlayers(self, teamID):
         params = {"team": teamID}
-        all_players = []
 
-       
-        response = self.client.collectData("players/squads", params)
-        if response:
-            return response['response']
-        else:
+        try:
+            response = self.client.collectData("players/squads", params)
+            if response:
+                return response['response']
+            else:
+                logging.info(f"API unable to return valid data for players on team {teamID}.")
+                return None
+        
+        except (Exception) as e:
+            logging.info(f"Error, cannot collect any data for players on team {teamID}: {e}")
             return None
     
     
@@ -229,37 +293,59 @@ class DataCollector:
     def getInjuries(self, leagueID=39):
         season = self.currentSeasonCalc()
         params = {"league": leagueID, "season": season}
-        response = self.client.collectData("injuries", params)
-        if response:
-            return response['response']
-        else:
+        try:
+            response = self.client.collectData("injuries", params)
+            if response:
+                return response['response']
+            else:
+                logging.info(f"API unable to return valid data of injuries for season {season}.")
+        except (Exception) as e :
+            logging.info(f"Error, unable to collect data for season {season}.")
             return None
         
     def leagueStandings(self, leagueID=39):
         season = self.currentSeasonCalc()
         params = {"league": leagueID, "season": season}
-        response = self.client.collectData("standings", params)
-        if response:
-            return response['response']
-        else:
+
+        try:
+            response = self.client.collectData("standings", params)
+            if response:
+                return response['response']
+            else:
+                logging.info(f"API unable to return any data of standings for league {leagueID}.")
+                return None    
+        except (Exception) as e:
+            logging.info(f"Error, unable to collect any data of standings for league {leagueID}: {e}")
             return None
 
     def topPerformers(self, leagueID=39):
         season = self.currentSeasonCalc()
         params = {"league": leagueID, "season": season}
-        response = self.client.collectData("players/topscorers", params)
-        if response:
-            return response['response']
-        else:
+
+        try:
+            response = self.client.collectData("players/topscorers", params)
+            if response:
+                return response['response']
+            else:
+                logging.info(f"API unable to return data for top performers during season {season}.")
+                return None
+        except (Exception) as e:
+            logging.info(f"Error, unable to collect any data for top performers for season {season}: {e}")
             return None
         
     def teamTransfers(self, teamID):
         params = {"team": teamID}
         response = self.client.collectData("transfers", params)
-        if response:
-            return response['response']
-        else:
-         return None
+
+        try:
+            if response:
+                return response['response']
+            else:
+                logging.info(f"API unable to return team transfers for team {teamID}.")
+                return None
+        except (Exception) as e:
+            logging.info(f"Error, unable to colelct data from team transfers for team {teamID}: {e}")
+            return None
         
 
     def collectData(self):
